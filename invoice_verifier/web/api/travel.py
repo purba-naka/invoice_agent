@@ -85,9 +85,11 @@ async def submit_document(
 
     # Klasifikasi dokumen travel (flight/hotel) — tetap auto-detect dari konten PDF
     doc_type = classify_document(filename, str(dest_path.resolve()))
+    doc_type_fallback = False
     if doc_type == "unknown":
         # Jangan jadi stopper — fallback ke hotel, tandai dengan warning
         doc_type = "hotel"
+        doc_type_fallback = True
         logger.warning(
             "transaction %s: doc_type tidak terdeteksi, fallback ke 'hotel'", transaction_id
         )
@@ -105,6 +107,7 @@ async def submit_document(
         "document_type": body.document_type,  # invoice / receipt dari PISmart
         "source_system": body.source_system,
         "submitted_at": submitted_at,
+        "doc_type_fallback": doc_type_fallback,
     }
 
     asyncio.create_task(runner_service.run_job(transaction_id))
@@ -175,7 +178,8 @@ async def get_result(
 
     result = job.result or {}
     ocr_confidence = _extract_confidence(result)
-    warning = _build_warning(ocr_confidence, result)
+    doc_type_fallback = meta.get("doc_type_fallback", False)
+    warning = _build_warning(ocr_confidence, result, doc_type_fallback)
 
     return JSONResponse({
         "transaction_id": transaction_id,
@@ -200,9 +204,16 @@ def _extract_confidence(result: dict) -> float | None:
     return None
 
 
-def _build_warning(confidence: float | None, result: dict) -> str | None:
-    """Bangun pesan warning jika confidence rendah atau ada flag kecurigaan."""
+def _build_warning(
+    confidence: float | None,
+    result: dict,
+    doc_type_fallback: bool = False,
+) -> str | None:
+    """Bangun pesan warning jika confidence rendah, ada flag kecurigaan, atau doc_type fallback."""
     warnings: list[str] = []
+
+    if doc_type_fallback:
+        warnings.append("Jenis dokumen tidak terdeteksi otomatis, diproses sebagai 'hotel'.")
 
     if confidence is not None and confidence < 0.6:
         warnings.append(f"OCR confidence rendah ({confidence:.0%}), disarankan review manual.")
