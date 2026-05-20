@@ -13,11 +13,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from baca_invoice.agents.flight import flight_agent
+from baca_invoice.agents.document import document_agent
 from baca_invoice.agents.formatter import formatter_agent
-from baca_invoice.agents.hotel import hotel_agent
-from baca_invoice.agents.invoice import invoice_agent
-from baca_invoice.agents.receipt import receipt_agent
 from baca_invoice.models.travel_document import TravelDocumentResult
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -184,24 +181,9 @@ class AgentRunnerService:
     def __init__(self) -> None:
         _clear_broken_local_proxy()
         self._session_service = InMemorySessionService()
-        self._invoice_runner = Runner(
+        self._document_runner = Runner(
             app_name=APP_NAME,
-            agent=invoice_agent,
-            session_service=self._session_service,
-        )
-        self._receipt_runner = Runner(
-            app_name=APP_NAME,
-            agent=receipt_agent,
-            session_service=self._session_service,
-        )
-        self._hotel_runner = Runner(
-            app_name=APP_NAME,
-            agent=hotel_agent,
-            session_service=self._session_service,
-        )
-        self._flight_runner = Runner(
-            app_name=APP_NAME,
-            agent=flight_agent,
+            agent=document_agent,
             session_service=self._session_service,
         )
         self._formatter_runner = Runner(
@@ -249,25 +231,10 @@ class AgentRunnerService:
             user_id = f"user_{job_id}"
             session_id = f"session_{job_id}"
 
-            # Routing berdasarkan 2-stage classification (doc_type + sub_type).
-            # Sub-type must stay compatible with the public doc_type.  For example,
-            # "tiket.com" is a travel provider but not always a flight document.
-            doc_type = job.doc_type
-            sub_type = job.sub_type
-            effective_sub_type = None
-            if doc_type == "invoice" and sub_type == "hotel":
-                runner = self._hotel_runner
-                effective_sub_type = sub_type
-            elif doc_type == "receipt" and sub_type == "flight":
-                runner = self._flight_runner
-                effective_sub_type = sub_type
-            elif doc_type == "invoice":
-                runner = self._invoice_runner
-            else:
-                runner = self._receipt_runner
-            label = _DOC_TYPE_LABEL.get(doc_type, "Dokumen")
-            if effective_sub_type:
-                label = f"{label} ({effective_sub_type})"
+            runner = self._document_runner
+            label = _DOC_TYPE_LABEL.get(job.doc_type, "Dokumen")
+            if job.sub_type:
+                label = f"{label} ({job.sub_type})"
 
             try:
                 await self._session_service.create_session(
@@ -283,7 +250,7 @@ class AgentRunnerService:
 
                 job.push({
                     "type": "status",
-                    "message": f"Terdeteksi: {label}. Memulai verifikasi...",
+                    "message": f"Terdeteksi awal: {label}. Memulai verifikasi dokumen...",
                 })
 
                 async for event in runner.run_async(
@@ -299,7 +266,7 @@ class AgentRunnerService:
                         job.result = _validate_agent_result(
                             structured_result,
                             doc_type=job.doc_type,
-                            sub_type=effective_sub_type,
+                            sub_type=job.sub_type,
                         )
                         continue
 
@@ -310,12 +277,12 @@ class AgentRunnerService:
                         validated = _validate_agent_result(
                             result,
                             doc_type=job.doc_type,
-                            sub_type=effective_sub_type,
+                            sub_type=job.sub_type,
                         )
                         job.result = await self._format_with_output_schema(
                             validated,
                             doc_type=job.doc_type,
-                            sub_type=effective_sub_type,
+                            sub_type=job.sub_type,
                             user_id=user_id,
                             session_id=f"{session_id}_formatter",
                         )
@@ -348,6 +315,9 @@ class AgentRunnerService:
         user_id: str,
         session_id: str,
     ) -> dict:
+        actual_doc_type = result.get("doc_type", doc_type)
+        actual_sub_type = result.get("document_subtype", sub_type)
+
         await self._session_service.create_session(
             app_name=APP_NAME,
             user_id=user_id,
@@ -372,7 +342,7 @@ class AgentRunnerService:
         if formatted is None:
             raise ValueError("Schema formatter finished without returning a validated result.")
 
-        return _validate_agent_result(formatted, doc_type=doc_type, sub_type=sub_type)
+        return _validate_agent_result(formatted, doc_type=actual_doc_type, sub_type=actual_sub_type)
 
     async def stream_events(
         self,
@@ -582,8 +552,12 @@ def _validate_agent_result(
     if not isinstance(result, dict) or set(result) == {"raw"}:
         raise ValueError("Agent did not return a valid JSON object matching the expected schema.")
 
-    result["doc_type"] = doc_type
-    result["document_subtype"] = sub_type or "general"
+    # Gunakan hasil ekstraksi agen jika valid, jika tidak gunakan hasil klasifikasi awal.
+    if "doc_type" not in result or result["doc_type"] not in ("invoice", "receipt", "unknown"):
+        result["doc_type"] = doc_type
+    if "document_subtype" not in result or result["document_subtype"] not in ("general", "hotel", "flight", "unknown"):
+        result["document_subtype"] = sub_type or "general"
+
     validated = TravelDocumentResult.model_validate(result).model_dump()
     return validated
 

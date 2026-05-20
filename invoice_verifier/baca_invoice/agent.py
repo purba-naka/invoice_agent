@@ -1,8 +1,6 @@
-from .agents.flight import flight_agent
-from .agents.hotel import hotel_agent
+from .agents.document import document_agent
 
-# Expose individual agents so agent_runner can pick the right one
-# based on server-side document type detection (no coordinator LLM call needed).
-root_agent = flight_agent  # ADK CLI default; runtime routing is done in agent_runner.py
+# Expose the single unified agent for ADK CLI
+root_agent = document_agent
 
-__all__ = ["root_agent", "flight_agent", "hotel_agent"]
+__all__ = ["root_agent", "document_agent"]

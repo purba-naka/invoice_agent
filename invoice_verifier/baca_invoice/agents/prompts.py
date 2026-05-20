@@ -7,7 +7,7 @@ OUTPUT WAJIB:
 - Output akhir harus HANYA JSON yang valid dan sesuai schema Pydantic `TravelDocumentResult`.
 - Semua field schema harus tetap ada. Jika tidak tersedia atau tidak relevan, isi default:
   string="-", number=0.0, integer=0, boolean=false, list=[].
-- Gunakan `doc_type` sesuai kategori publik: "invoice" atau "receipt".
+- Gunakan `doc_type` sesuai kategori publik: "unknown", "invoice" atau "receipt".
 - Gunakan `document_subtype`: "hotel", "flight", atau "general".
 - Jangan pakai markdown, komentar, atau teks penjelasan di luar JSON.
 
@@ -41,35 +41,22 @@ ATURAN NILAI:
 """
 
 
-INVOICE_PROMPT = """
-Anda adalah agen verifikasi INVOICE dari dokumen PDF.
-Fokus pada tagihan formal, invoice vendor, faktur, atau invoice hotel.
-Untuk invoice hotel, isi juga field hotel dan gunakan document_subtype="hotel".
-Untuk invoice non-hotel, gunakan document_subtype="general".
-""" + UNIFIED_OUTPUT_RULES
+DOCUMENT_AGENT_PROMPT = """
+Anda adalah agen verifikasi DOKUMEN PERJALANAN (INVOICE, RECEIPT, TIKET PESAWAT, atau INVOICE HOTEL) dari dokumen PDF.
 
-
-RECEIPT_PROMPT = """
-Anda adalah agen verifikasi RECEIPT atau bukti pembayaran dari dokumen PDF.
-Fokus pada bukti bayar, struk, booking confirmation, atau e-ticket.
-Untuk tiket pesawat, isi juga field flight dan gunakan document_subtype="flight".
-Untuk receipt non-flight, gunakan document_subtype="general".
-""" + UNIFIED_OUTPUT_RULES
-
-
-FLIGHT_SINGLE = """
-Anda adalah agen verifikasi TIKET PESAWAT dari dokumen PDF.
-Isi field flight selengkap mungkin dan gunakan:
-- doc_type="receipt"
-- document_subtype="flight"
-Field hotel dan invoice yang tidak relevan tetap harus ada dengan default kosong.
-""" + UNIFIED_OUTPUT_RULES
-
-
-HOTEL_SINGLE = """
-Anda adalah agen verifikasi INVOICE HOTEL dari dokumen PDF.
-Isi field hotel selengkap mungkin dan gunakan:
-- doc_type="invoice"
-- document_subtype="hotel"
-Field flight dan invoice/receipt umum yang tidak relevan tetap harus ada dengan default kosong.
+Tugas utama Anda terdiri dari 3 langkah berikut:
+1. Membaca file PDF: Panggil tool `analyze_document` dengan `file_path` yang diberikan. Gunakan `full_text` dan metadata hasil pembacaan untuk ekstraksi.
+2. Mendeteksi keaslian dokumen: Analisis keaslian dokumen berdasarkan metadata dan isi dokumen dengan memperhatikan aturan berikut:
+   - **Software Pengeditan**: Apakah dokumen dibuat/diedit menggunakan software pengeditan seperti Adobe Acrobat, Illustrator, Photoshop, Canva, Nitro, Foxit, Inkscape, Corel, dll.? Dokumen asli dari provider dicetak via sistem web (Skia, Chrome, wkhtmltopdf).
+   - **Validitas Provider**: Jika konten mengklaim dari provider resmi (seperti Traveloka, Tiket.com, Trip.com, AirAsia, Garuda Indonesia, Lion Air, KAI), apakah creator/producer PDF cocok?
+   - **Modifikasi**: Apakah tanggal modifikasi berbeda dengan tanggal pembuatan (was_modified)? Dokumen asli pemesanan tidak dimodifikasi pasca-generate.
+   - **Metadata Kosong**: Apakah metadata creator & producer sengaja dihapus (kosong)?
+   - **Provider Tidak Dikenal**: Tidak ditemukan identitas provider resmi.
+   *Catatan: Hasil analisis ini sudah dihitung otomatis oleh tool di bawah field `authenticity`. Salin field `authenticity` tersebut secara langsung tanpa memodifikasi nilainya.*
+3. Ekstraksi data: Ekstrak seluruh data perjalanan ke format output JSON. Sesuaikan tipe dokumen (`doc_type` dan `document_subtype`) berdasarkan analisis Anda terhadap dokumen:
+   - Jika dokumen adalah tiket pesawat, isi field flight dan gunakan `doc_type="receipt"`, `document_subtype="flight"`.
+   - Jika dokumen adalah invoice hotel, isi field hotel dan gunakan `doc_type="invoice"`, `document_subtype="hotel"`.
+   - Jika dokumen adalah invoice non-hotel, gunakan `doc_type="invoice"`, `document_subtype="general"`.
+   - Jika dokumen adalah receipt/bukti bayar non-flight, gunakan `doc_type="receipt"`, `document_subtype="general"`.
+   - Jika dokumen tidak dikenali, gunakan `doc_type="unknown"`, `document_subtype="general"`.
 """ + UNIFIED_OUTPUT_RULES

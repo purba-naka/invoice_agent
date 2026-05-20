@@ -21,7 +21,8 @@ _STUB_MODS = [
     # Only stub the submodules that pull in google-adk or fitz at import time.
     "baca_invoice.agent",
     "baca_invoice.agents",
-    "baca_invoice.agents.flight", "baca_invoice.agents.formatter", "baca_invoice.agents.hotel",
+    "baca_invoice.agents.document", "baca_invoice.agents.formatter",
+    "baca_invoice.agents.flight", "baca_invoice.agents.hotel",
     "baca_invoice.agents.invoice", "baca_invoice.agents.receipt",
     "baca_invoice.tools", "baca_invoice.tools.constants",
     "baca_invoice.tools.combined", "baca_invoice.tools.authenticity",
