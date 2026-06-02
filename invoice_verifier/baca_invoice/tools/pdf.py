@@ -33,6 +33,65 @@ def _compute_modification_info(
     return True, int(gap_seconds // 86400)
 
 
+def render_pages_png(
+    file_path: str, page_numbers: list[int], dpi: int = 200
+) -> list[tuple[int, bytes | None]]:
+    """Render banyak halaman dalam satu kali buka file.
+
+    Returns:
+        list of (page_number, png_bytes | None). `None` jika halaman gagal dirender.
+        Tidak pernah raise — error per-halaman dikemas via None.
+    """
+    results: list[tuple[int, bytes | None]] = []
+    try:
+        doc = fitz.open(file_path)
+    except Exception:
+        return [(p, None) for p in page_numbers]
+    try:
+        matrix = fitz.Matrix(dpi / 72, dpi / 72)
+        total = len(doc)
+        for page_number in page_numbers:
+            idx = page_number - 1
+            if idx < 0 or idx >= total:
+                results.append((page_number, None))
+                continue
+            try:
+                pixmap = doc[idx].get_pixmap(matrix=matrix)
+                results.append((page_number, pixmap.tobytes("png")))
+            except Exception:
+                results.append((page_number, None))
+    finally:
+        doc.close()
+    return results
+
+
+def render_page_png(file_path: str, page_number: int, dpi: int = 200) -> bytes:
+    """Render satu halaman PDF menjadi PNG bytes in-memory.
+
+    Args:
+        file_path: Path absolut ke file PDF.
+        page_number: Nomor halaman 1-based.
+        dpi: Resolusi render (default 200).
+
+    Returns:
+        PNG bytes dari halaman tersebut.
+
+    Raises:
+        ValueError: Jika page_number di luar rentang.
+        Exception: Jika file tidak bisa dibuka atau halaman tidak bisa dirender.
+    """
+    doc = fitz.open(file_path)
+    try:
+        idx = page_number - 1
+        if idx < 0 or idx >= len(doc):
+            raise ValueError(f"page_number {page_number} out of range (1..{len(doc)})")
+        matrix = fitz.Matrix(dpi / 72, dpi / 72)
+        pixmap = doc[idx].get_pixmap(matrix=matrix)
+        return pixmap.tobytes("png")
+    finally:
+        doc.close()
+
+
 def read_pdf(file_path: str) -> dict[str, Any]:
     """Baca seluruh teks dan metadata PDF dalam satu kali open file.
 

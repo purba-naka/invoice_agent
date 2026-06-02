@@ -17,7 +17,7 @@ from google.adk.models import LlmResponse
 from google.genai import types
 
 from ..models.authenticity import DocumentAuthenticity
-from ..models.travel_document import TravelDocumentResult
+from ..models.travel_document import OcrSummary, TravelDocumentResult
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,36 @@ def compute_review_flags(result: TravelDocumentResult) -> tuple[bool, list[str]]
         missing = [f for f in _CRITICAL_FIELDS if not _is_filled(getattr(result, f, None))]
         if missing:
             reasons.append(f"field penting tidak terbaca: {', '.join(missing)}")
+
+    # OCR-related review flags
+    ocr = result.ocr_summary
+    if ocr.pages_ocr_failed > 0:
+        reasons.append("ocr_failed")
+    if ocr.pages_skipped > 0:
+        reasons.append("ocr_skipped_pages")
+    if ocr.route == "ocr" and not ocr.enabled:
+        reasons.append("ocr_unavailable")
+
     return (bool(reasons), reasons)
+
+
+def _extract_ocr_summary_from_state(state_payload: Any) -> OcrSummary | None:
+    """Ambil OcrSummary dari output extractor (state['document_data'])."""
+    if isinstance(state_payload, str):
+        try:
+            state_payload = json.loads(state_payload)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(state_payload, dict):
+        return None
+    raw = state_payload.get("ocr_summary")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return OcrSummary.model_validate(raw)
+    except ValueError as exc:
+        logger.warning("postprocess: gagal validasi ocr_summary dari state (%s).", exc)
+        return None
 
 
 def _normalize_currency(value: str | None) -> str:
@@ -190,6 +219,7 @@ def _extract_authenticity_from_state(state_payload: Any) -> DocumentAuthenticity
 def apply_postprocessing(
     result: TravelDocumentResult,
     authenticity_override: DocumentAuthenticity | None = None,
+    ocr_summary_override: OcrSummary | None = None,
 ) -> TravelDocumentResult:
     """Pure function: terima TravelDocumentResult, kembalikan versi terisi meta.
 
@@ -197,12 +227,16 @@ def apply_postprocessing(
         result: hasil parse JSON output formatter.
         authenticity_override: jika diberikan, timpa `result.authenticity`
             dengan nilai ini (untuk bypass LLM dan pakai output tool langsung).
+        ocr_summary_override: jika diberikan, timpa `result.ocr_summary`
+            dengan nilai dari state extractor (selalu ada jika jalur normal).
     """
     updates: dict[str, Any] = {
         "currency": _normalize_currency(result.currency),
     }
     if authenticity_override is not None:
         updates["authenticity"] = authenticity_override
+    if ocr_summary_override is not None:
+        updates["ocr_summary"] = ocr_summary_override
     intermediate = result.model_copy(update=updates)
 
     confidence = compute_confidence(intermediate)
@@ -244,6 +278,7 @@ def postprocess_llm_response(
         return None
 
     auth_override: DocumentAuthenticity | None = None
+    ocr_override: OcrSummary | None = None
     state = getattr(callback_context, "state", None)
     if state is not None:
         try:
@@ -252,10 +287,11 @@ def postprocess_llm_response(
                 auth_override = DocumentAuthenticity.model_validate(raw_auth)
             else:
                 auth_override = _extract_authenticity_from_state(state.get(EXTRACTOR_STATE_KEY))
+            ocr_override = _extract_ocr_summary_from_state(state.get(EXTRACTOR_STATE_KEY))
         except Exception as exc:  # noqa: BLE001
             logger.warning("postprocess: gagal akses state (%s).", exc)
 
-    processed = apply_postprocessing(result, authenticity_override=auth_override)
+    processed = apply_postprocessing(result, authenticity_override=auth_override, ocr_summary_override=ocr_override)
     new_text = processed.model_dump_json()
     return LlmResponse(
         content=types.Content(role=content.role, parts=[types.Part(text=new_text)])

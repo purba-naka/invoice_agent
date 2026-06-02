@@ -38,3 +38,15 @@ SQLITE_DB_PATH: str = str(
 
 PINTER_API_KEY: str | None = os.getenv("PINTER_API_KEY") or None
 PINTER_TRX_TTL_DAYS: int = int(os.getenv("PINTER_TRX_TTL_DAYS", "7"))
+
+GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY") or None
+
+# OCR via Gemini Vision — semua opsional dengan default sensible
+_ocr_enabled_default = "1" if GOOGLE_API_KEY else "0"
+OCR_ENABLED: bool = os.getenv("OCR_ENABLED", _ocr_enabled_default).lower() not in ("0", "false", "no")
+OCR_MAX_PAGES: int = int(os.getenv("OCR_MAX_PAGES", "10"))
+OCR_CONCURRENCY: int = int(os.getenv("OCR_CONCURRENCY", "3"))
+OCR_MIN_TEXT_CHARS: int = int(os.getenv("OCR_MIN_TEXT_CHARS", "20"))
+OCR_RENDER_DPI: int = int(os.getenv("OCR_RENDER_DPI", "200"))
+OCR_MODEL: str = os.getenv("OCR_MODEL", "gemini-2.5-flash")
+OCR_TIMEOUT_SECONDS: float = float(os.getenv("OCR_TIMEOUT_SECONDS", "30"))

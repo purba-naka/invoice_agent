@@ -7,6 +7,29 @@ from pydantic import BaseModel, Field, field_validator
 from .authenticity import DocumentAuthenticity
 
 
+class OcrSummary(BaseModel):
+    """Ringkasan jalur ekstraksi per dokumen. Selalu hadir di response."""
+
+    enabled: bool = Field(default=False, description="True jika OCR diaktifkan saat proses.")
+    route: Literal["pymupdf", "ocr"] = Field(
+        default="pymupdf",
+        description="Jalur ekstraksi yang dipilih: 'pymupdf' (text-layer) atau 'ocr' (Gemini Vision).",
+    )
+    total_pages: int = Field(default=0, description="Total halaman PDF.")
+    pages_text_layer: int = Field(
+        default=0,
+        description="Halaman yang terhitung punya text-layer (digunakan untuk keputusan routing).",
+    )
+    pages_ocr_success: int = Field(default=0, description="Halaman berhasil di-OCR. 0 jika route=pymupdf.")
+    pages_ocr_failed: int = Field(default=0, description="Halaman gagal OCR. 0 jika route=pymupdf.")
+    pages_skipped: int = Field(
+        default=0,
+        description="Halaman di-skip karena melebihi OCR_MAX_PAGES. 0 jika route=pymupdf.",
+    )
+    ocr_duration_ms: int = Field(default=0, description="Durasi OCR terlama (ms). 0 jika route=pymupdf.")
+    model: str = Field(default="", description="Model Gemini yang dipakai. '' jika route=pymupdf.")
+
+
 class InvoiceLineItem(BaseModel):
     description: str = Field(default="-", description="Deskripsi item tagihan.")
     quantity: float = Field(default=0.0, description="Jumlah/quantity item.")
@@ -158,6 +181,20 @@ class TravelDocumentResult(BaseModel):
     summary: str = Field(
         default="-",
         description="Ringkasan 1-2 kalimat: pihak utama, tanggal/rute/kamar, total, verdict authenticity.",
+    )
+    ocr_summary: OcrSummary = Field(
+        default_factory=lambda: OcrSummary(
+            enabled=False,
+            route="pymupdf",
+            total_pages=0,
+            pages_text_layer=0,
+            pages_ocr_success=0,
+            pages_ocr_failed=0,
+            pages_skipped=0,
+            ocr_duration_ms=0,
+            model="",
+        ),
+        description="Ringkasan jalur ekstraksi (pymupdf vs gemini OCR). Selalu hadir.",
     )
 
     @field_validator(
